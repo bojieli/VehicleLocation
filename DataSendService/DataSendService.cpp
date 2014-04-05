@@ -72,19 +72,19 @@ void DisplayTitles(HSTMT    hStmt,
 void SetConsole(DWORD   cDisplaySize,
                 BOOL    fInvert);
 
+#define TAIL_BYTES 2
 typedef struct {
-	// 10+1=11: need to leave one space for \0, ODBC needs it
-	char serial[11];
-	char time[7];
-	char date[7];
+	char serial[10 + TAIL_BYTES];
+	char time[6 + TAIL_BYTES];
+	char date[6 + TAIL_BYTES];
 	double latitude;
 	double longitude;
 	USHORT speed;
 	USHORT direction;
 	USHORT height;
 	USHORT accuracy;
-	char vehicle_status[9];
-	char usr_alarm_flag[3];
+	char vehicle_status[8 + TAIL_BYTES];
+	char usr_alarm_flag[2 + TAIL_BYTES];
 	long id;
 } ParsedRecord;
 
@@ -287,6 +287,12 @@ static RETCODE handle_sql_data(SQLHSTMT hStmt)
 		SQLGetData(hStmt, 10, SQL_C_CHAR, pr.vehicle_status, sizeof(pr.vehicle_status), NULL);
 		SQLGetData(hStmt, 11, SQL_C_CHAR, pr.usr_alarm_flag, sizeof(pr.usr_alarm_flag), NULL);
 		SQLGetData(hStmt, 12, SQL_C_LONG, &pr.id, sizeof(pr.id), NULL);
+
+#if DEBUG
+		fprintf(stderr, "New row in database: serial=%s time=%s date=%s latitude=%lf longitude=%lf speed=%d direction=%d "
+			"height=%d accuracy=%d vehicle_status=%s usr_alarm_flag=%s id=%ld\n",
+			pr.serial, pr.time, pr.date, pr.latitude, pr.longitude, pr.speed, pr.direction, pr.height, pr.accuracy, pr.vehicle_status, pr.usr_alarm_flag, pr.id);
+#endif
 
 		if (!send_parsed_record(&pr)) {
 			SaveMaxID((DWORD)global_max_id);
