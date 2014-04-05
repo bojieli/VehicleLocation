@@ -1,0 +1,7 @@
+*/*
+*.zip
+!*.cpp
+!*.c
+!*.sln
+!*.vcxproj
+!*.vcxproj.user
