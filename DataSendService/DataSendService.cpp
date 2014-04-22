@@ -221,7 +221,7 @@ static bool send_parsed_record(ParsedRecord *pr)
 
 	r.header.magic = 0xAAAA;
 	r.header.command = 0xCCCC;
-	r.header.version = htons(0x2200);
+	r.header.version = htons(0x0002); // different from the document
 	r.header.body_length = htonl(sizeof(r) - sizeof(r.header));
 
 	memset(r.serial, 0, sizeof(r.serial));
@@ -245,7 +245,7 @@ static bool send_parsed_record(ParsedRecord *pr)
 	struct tm local_timeinfo;
 	localtime_s(&local_timeinfo, &local_timestamp);
 
-	r.year = htons((USHORT)(local_timeinfo.tm_year + 1900));
+	r.year = (USHORT)(local_timeinfo.tm_year + 1900); // this field is little endian instead of network order
 	r.month = (BYTE)(local_timeinfo.tm_mon + 1);
 	r.day = (BYTE)local_timeinfo.tm_mday;
 	r.hour = (BYTE)local_timeinfo.tm_hour;
@@ -255,7 +255,7 @@ static bool send_parsed_record(ParsedRecord *pr)
 	fprintf(stderr, "New record: id=%d serial=%.20s longitude=%lf latitude=%lf speed=%d direction=%d "
 		"timestamp=%d year=%d month=%d day=%d hour=%d minute=%d second=%d\n",
 		pr->id, r.serial, r.longitude, r.latitude, ntohs(r.speed), ntohs(r.direction),
-		(int)local_timestamp, ntohs(r.year), r.month, r.day, r.hour, r.minute, r.second);
+		(int)local_timestamp, r.year, r.month, r.day, r.hour, r.minute, r.second);
 
 	if (global_UseUDP) {
 		if (sizeof(sendRecord) != sendton(global_ClientSocket, (char*)&r, sizeof(sendRecord), 0, (sockaddr *)&global_UDPDest, sizeof(global_UDPDest))) {
@@ -275,6 +275,7 @@ static RETCODE handle_sql_data(SQLHSTMT hStmt)
 {
 	while (SQLFetch(hStmt) == SQL_SUCCESS) {
 		ParsedRecord pr;
+		memset(&pr, 0, sizeof(pr));
 		SQLGetData(hStmt, 1, SQL_C_CHAR, pr.serial, sizeof(pr.serial), NULL);
 		SQLGetData(hStmt, 2, SQL_C_CHAR, pr.time, sizeof(pr.time), NULL);
 		SQLGetData(hStmt, 3, SQL_C_CHAR, pr.date, sizeof(pr.date), NULL);
