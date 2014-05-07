@@ -11,7 +11,7 @@
 #include <thread>
 #include <time.h>
 
-#define DEBUG 0
+#define DEBUG 1
 #define DEFAULT_REMOTE_IP "10.125.193.65"
 #define DEFAULT_REMOTE_PORT 7200
 #define REG_KEY_DIR TEXT("SOFTWARE\\VehicleLocation")
@@ -46,7 +46,16 @@ typedef struct STR_BINDING {
     struct STR_BINDING  *sNext;                 /* linked list      */
 } BINDING;
 
-
+static char* DateTime() {
+	static char tmpbuf[128] = {0};
+	_strdate_s(tmpbuf, 128);
+	int len = strlen(tmpbuf);
+	tmpbuf[len] = ' ';
+	tmpbuf[len + 1] = '\0';
+	len += 1;
+	_strtime_s(tmpbuf + len, 128 - len);
+	return tmpbuf;
+}
 
 /******************************************/
 /* Forward references                     */
@@ -105,6 +114,9 @@ static DWORD QueryMaxID(void)
 		fprintf(stderr, "Registry key MaxSentID does not exist [errno %d]\n", iResult);
 		return NULL;
 	}
+#if DEBUG
+	fprintf(stderr, "Read MaxSentID = %ld from registry\n", max_id);
+#endif
 	return max_id;
 }
 
@@ -121,6 +133,9 @@ static bool SaveMaxID(DWORD max_id)
 		fprintf(stderr, "Set registry key failed [errno %d]\n", iResult);
 		return false;
 	}
+#if DEBUG
+	fprintf(stderr, "Saved MaxSentID = %ld to registry\n", max_id);
+#endif
 	return true;
 }
 
@@ -190,7 +205,10 @@ static int sendton(
 	int left_len = len;
 	while (left_len > 0) {
 		int recvBytes = sendto(s, buf, left_len, flags, to, tolen);
-		if (recvBytes <= 0)
+#if DEBUG
+		fprintf(stderr, "[%s] UDP send message: %d bytes sent (total %d)\n", DateTime(), recvBytes, len);
+#endif
+		if (recvBytes < 0)
 			return recvBytes;
 		buf += recvBytes;
 		left_len -= recvBytes;
@@ -207,7 +225,10 @@ static int sendn(
 	int left_len = len;
 	while (left_len > 0) {
 		int recvBytes = send(s, buf, left_len, flags);
-		if (recvBytes <= 0)
+#if DEBUG
+		fprintf(stderr, "[%s] TCP send message: %d bytes sent (total %d)\n", DateTime(), recvBytes, len);
+#endif
+		if (recvBytes < 0)
 			return recvBytes;
 		buf += recvBytes;
 		left_len -= recvBytes;
@@ -252,9 +273,9 @@ static bool send_parsed_record(ParsedRecord *pr)
 	r.minute = (BYTE)local_timeinfo.tm_min;
 	r.second = (BYTE)local_timeinfo.tm_sec;
 
-	fprintf(stderr, "New record: id=%d serial=%.20s longitude=%lf latitude=%lf speed=%d direction=%d "
+	fprintf(stderr, "[%s] New record: id=%d serial=%.20s longitude=%lf latitude=%lf speed=%d direction=%d "
 		"timestamp=%d year=%d month=%d day=%d hour=%d minute=%d second=%d\n",
-		pr->id, r.serial, r.longitude, r.latitude, ntohs(r.speed), ntohs(r.direction),
+		DateTime(), pr->id, r.serial, r.longitude, r.latitude, ntohs(r.speed), ntohs(r.direction),
 		(int)local_timestamp, r.year, r.month, r.day, r.hour, r.minute, r.second);
 
 	if (global_UseUDP) {
@@ -273,7 +294,9 @@ static bool send_parsed_record(ParsedRecord *pr)
 
 static RETCODE handle_sql_data(SQLHSTMT hStmt)
 {
+	int NumRecords = 0;
 	while (SQLFetch(hStmt) == SQL_SUCCESS) {
+		++NumRecords;
 		ParsedRecord pr;
 		memset(&pr, 0, sizeof(pr));
 		SQLGetData(hStmt, 1, SQL_C_CHAR, pr.serial, sizeof(pr.serial), NULL);
@@ -290,9 +313,9 @@ static RETCODE handle_sql_data(SQLHSTMT hStmt)
 		SQLGetData(hStmt, 12, SQL_C_LONG, &pr.id, sizeof(pr.id), NULL);
 
 #if DEBUG
-		fprintf(stderr, "New row in database: serial=%s time=%s date=%s latitude=%lf longitude=%lf speed=%d direction=%d "
+		fprintf(stderr, "[%s] New row in database: serial=%s time=%s date=%s latitude=%lf longitude=%lf speed=%d direction=%d "
 			"height=%d accuracy=%d vehicle_status=%s usr_alarm_flag=%s id=%ld\n",
-			pr.serial, pr.time, pr.date, pr.latitude, pr.longitude, pr.speed, pr.direction, pr.height, pr.accuracy, pr.vehicle_status, pr.usr_alarm_flag, pr.id);
+			DateTime(), pr.serial, pr.time, pr.date, pr.latitude, pr.longitude, pr.speed, pr.direction, pr.height, pr.accuracy, pr.vehicle_status, pr.usr_alarm_flag, pr.id);
 #endif
 
 		if (!send_parsed_record(&pr)) {
@@ -303,7 +326,12 @@ static RETCODE handle_sql_data(SQLHSTMT hStmt)
 		if (pr.id > global_max_id)
 			global_max_id = pr.id;
 	}
-	SaveMaxID((DWORD)global_max_id);
+	if (NumRecords > 0) {
+#if DEBUG
+		fprintf(stderr, "Saved %d record(s) in database\n", NumRecords);
+#endif
+		SaveMaxID((DWORD)global_max_id);
+	}
 	return SQL_SUCCESS;
 }
 
@@ -418,6 +446,9 @@ static RETCODE poll_database(SQLHSTMT hStmt, SOCKET ClientSocket)
 	global_max_id = QueryMaxID();
 	while (1) {
 		WCHAR sql[SQL_MAXLEN] = {0};
+#if DEBUG
+		fprintf(stderr, "[%s] Polling database after record %ld...\n", DateTime(), global_max_id);
+#endif
 		wsprintf(sql, L"SELECT serial,time,date,latitude,longitude,speed,direction,height,accuracy,vehicle_status,usr_alarm_flag,id FROM location WHERE id > %ld ORDER BY id", global_max_id);
 		if (SQL_ERROR == sql_query_wrapper(hStmt, sql))
 			return SQL_ERROR;
